@@ -1,12 +1,24 @@
 import { useMemo } from 'react';
 import { useAppContext } from '../../context/AppContext';
 import { getDesignerOfMonth } from '../../lib/designerOfMonth';
+import { scopeRevenueItems } from '../../lib/revenueAttribution';
 import { Card } from '../ui/Card';
 import { Award, Star, ClipboardList, Users, TrendingUp } from 'lucide-react';
 
 export function DesignerOfMonth() {
-  const { tasks, loading } = useAppContext();
-  const winner = useMemo(() => getDesignerOfMonth(tasks), [tasks]);
+  const { tasks, allTasks, filters, loading, revenueItems } = useAppContext();
+
+  // Revenue is scoped to the month/category being awarded; hours denominators
+  // come from allTasks so each project's total stays whole.
+  const scopedRevenue = useMemo(
+    () => scopeRevenueItems(revenueItems, { month: filters.month, category: filters.category }),
+    [revenueItems, filters.month, filters.category],
+  );
+
+  const winner = useMemo(
+    () => getDesignerOfMonth(tasks, scopedRevenue, allTasks),
+    [tasks, scopedRevenue, allTasks],
+  );
 
   if (loading) {
     return (
@@ -28,7 +40,7 @@ export function DesignerOfMonth() {
           No eligible designer this month
         </p>
         <p className="text-[#8B8B9E] text-xs">
-          Minimum 5 tasks with 3.0+ rating required
+          Minimum 5 tasks with 3.0+ rating required · Designers with a Client Lost project are ineligible
         </p>
       </Card>
     );

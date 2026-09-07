@@ -1,16 +1,17 @@
 import { useAppContext } from '../../context/AppContext';
 import { useLeaderboard } from '../../hooks/useLeaderboard';
+import { isClientLost } from '../../lib/ratings';
 import { Card } from '../ui/Card';
 import { RatingBadge } from '../ui/RatingBadge';
 import { Table, Thead, Tbody, Th, Td } from '../ui/Table';
 import { Trophy, Medal } from 'lucide-react';
 
 /**
- * Rank icon + number for the top 3 ELIGIBLE designers.
- * Ineligible designers (< 3 tasks) receive "—" instead.
+ * Rank icon + number for the top 3 scored designers.
+ * Designers with no rating at all (nothing to rank) receive "—" instead.
  */
-function RankCell({ rank, eligible }: { rank: number; eligible: boolean }) {
-  if (!eligible) {
+function RankCell({ rank, ranked }: { rank: number; ranked: boolean }) {
+  if (!ranked) {
     return <span className="text-[#8B8B9E] text-sm">—</span>;
   }
   if (rank === 1)
@@ -41,9 +42,9 @@ function RankCell({ rank, eligible }: { rank: number; eligible: boolean }) {
   );
 }
 
-/** Subtle row tint for top 3 eligible designers */
-function rowBg(rank: number, eligible: boolean): string {
-  if (!eligible) return '';
+/** Subtle row tint for the top 3 scored designers */
+function rowBg(rank: number, ranked: boolean): string {
+  if (!ranked) return '';
   if (rank === 1) return 'bg-yellow-400/5';
   if (rank === 2) return 'bg-slate-300/5';
   if (rank === 3) return 'bg-amber-600/5';
@@ -51,14 +52,32 @@ function rowBg(rank: number, eligible: boolean): string {
 }
 
 export function Leaderboard() {
-  const { loading } = useAppContext();
+  const { loading, allTasks } = useAppContext();
   const leaderboard = useLeaderboard();
 
-  // Assign display ranks only to eligible designers; ineligible get rank = 0
-  let eligibleRank = 0;
+  // Client Lost is a standing per-designer flag, not tied to whichever month
+  // happens to be selected — so it's read from allTasks (unfiltered), not the
+  // Dashboard's current filtered `tasks`. Scoping this to the active filter
+  // was the bug: the default month auto-selects the most recent month with
+  // data, so a designer's Client Lost task from an earlier month would make
+  // the badge silently disappear the moment a later month had any data.
+  const clientLostDesigners = new Set(
+    allTasks
+      .filter((t) => isClientLost(t.status))
+      .map((t) => t.designerName)
+      .filter(Boolean)
+  );
+
+  // Rank is assigned to every designer with a computed score (i.e. any
+  // rating at all), in the score-descending order useLeaderboard already
+  // sorted them into — not gated by the stricter Designer-of-the-Month
+  // eligibility bar (5+ tasks, 3.0+ rating). A designer with no rating at
+  // all has nothing to rank by, so they still fall back to "—".
+  let rankCounter = 0;
   const ranked = leaderboard.map((d) => {
-    if (d.eligible) eligibleRank += 1;
-    return { ...d, displayRank: d.eligible ? eligibleRank : 0 };
+    const hasScore = d.weightedScore !== null;
+    if (hasScore) rankCounter += 1;
+    return { ...d, displayRank: hasScore ? rankCounter : 0 };
   });
 
   return (
@@ -102,12 +121,12 @@ export function Leaderboard() {
             {ranked.map((d) => (
               <tr
                 key={d.name}
-                className={`hover:bg-[#1E1E2E]/50 transition-colors duration-100 ${rowBg(d.displayRank, d.eligible)}`}
+                className={`hover:bg-[#1E1E2E]/50 transition-colors duration-100 ${rowBg(d.displayRank, d.weightedScore !== null)}`}
               >
                 {/* Rank */}
                 <Td>
                   <div className="flex items-center justify-center w-10">
-                    <RankCell rank={d.displayRank} eligible={d.eligible} />
+                    <RankCell rank={d.displayRank} ranked={d.weightedScore !== null} />
                   </div>
                 </Td>
 
@@ -118,6 +137,11 @@ export function Leaderboard() {
                       {d.name.charAt(0).toUpperCase()}
                     </div>
                     <span className="font-medium text-[#F0F0F5]">{d.name}</span>
+                    {clientLostDesigners.has(d.name) && (
+                      <span className="ml-2 px-2 py-0.5 rounded-full text-xs font-medium bg-red-500/20 text-red-400 border border-red-500/30">
+                        Client Lost
+                      </span>
+                    )}
                   </div>
                 </Td>
 

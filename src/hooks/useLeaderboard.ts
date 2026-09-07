@@ -1,14 +1,33 @@
 import { useMemo } from 'react';
 import { useAppContext } from '../context/AppContext';
 import type { DesignerStats } from '../types';
-import { statusFromRating, computeWeightedScore } from '../lib/ratings';
+import { statusFromRating } from '../lib/ratings';
+import { computeDesignerRevenue, scopeRevenueItems } from '../lib/revenueAttribution';
+import { computeWeightedDesignerScore } from '../lib/designerOfMonth';
 
 /** Must match designerOfMonth.ts thresholds */
 const ELIGIBLE_MIN_TASKS = 5;
 const ELIGIBLE_MIN_RATING = 3.0;
 
 export function useLeaderboard(): DesignerStats[] {
-  const { tasks } = useAppContext();
+  const { tasks, allTasks, filters, revenueItems } = useAppContext();
+
+  // Same billing-aware attribution DOTM/IT Ops Champion use: hours-denominator
+  // comes from the COMPLETE task list (so a project's hours-share math never
+  // gets skewed by whatever's currently filtered), while the revenue rows
+  // themselves are scoped to the active month/category — matching what those
+  // award cards do, for one consistent notion of "revenue right now."
+  const scopedRevenue = useMemo(
+    () => scopeRevenueItems(revenueItems, { month: filters.month, category: filters.category }),
+    [revenueItems, filters.month, filters.category],
+  );
+  const revenueMap = useMemo(() => {
+    const map = new Map<string, number>();
+    computeDesignerRevenue(allTasks, scopedRevenue).forEach((r) => {
+      map.set(r.designerName, r.revenueContribution);
+    });
+    return map;
+  }, [allTasks, scopedRevenue]);
 
   return useMemo(() => {
     // ── 1. Aggregate per designer ─────────────────────────────────────────
@@ -46,10 +65,7 @@ export function useLeaderboard(): DesignerStats[] {
       designerMap.set(designer, existing);
     });
 
-    // ── 2. Total tasks across ALL designers (for weighted score) ──────────
-    const totalTasksAll = tasks.filter((t) => t.designerName).length;
-
-    // ── 3. Build DesignerStats array ──────────────────────────────────────
+    // ── 2. Build DesignerStats array (score filled in after the max is known) ─
     const stats: DesignerStats[] = [];
 
     designerMap.forEach((data, name) => {
@@ -65,55 +81,56 @@ export function useLeaderboard(): DesignerStats[] {
         if (count > maxCount) { maxCount = count; primaryLeader = leader; }
       });
 
-      // Eligible = 5+ tasks AND avgRating >= 3.0 (same thresholds as DOTM)
+      // Eligible = 5+ tasks AND avgRating >= 3.0 — the Designer-of-the-Month
+      // award threshold. Kept as a distinct flag (still meaningful: "would
+      // this designer qualify for DOTM"), but no longer gates whether the
+      // Leaderboard shows a Score/Rank — a general roster table shouldn't go
+      // blank for every designer just because nobody happens to clear DOTM's
+      // stricter monthly-award bar yet.
       const eligible =
         data.totalTasks >= ELIGIBLE_MIN_TASKS &&
         avgRating !== null &&
         avgRating >= ELIGIBLE_MIN_RATING;
-
-      // Weighted score only for eligible designers with a rating
-      const weightedScore =
-        eligible && avgRating !== null
-          ? Math.round(
-              computeWeightedScore(avgRating, data.totalTasks, totalTasksAll) * 100,
-            ) / 100
-          : null;
 
       stats.push({
         name,
         teamLeader: primaryLeader,
         totalTasks: data.totalTasks,
         averageRating: avgRating,
-        weightedScore,
+        weightedScore: null, // computed below, once maxRevenue/maxTasks are known
         eligible,
         status: statusFromRating(avgRating),
       });
     });
 
-    // ── 4. Sort: eligible by weightedScore → ineligible-with-rating → null-rating ─
-    return stats.sort((a, b) => {
-      // Eligible always first
-      if (a.eligible && !b.eligible) return -1;
-      if (!a.eligible && b.eligible) return 1;
+    // ── 3. Score every rated designer with the SAME formula as Designer of
+    // the Month (rating + revenue + task-count, weighted 0.5/0.3/0.2),
+    // normalized against the max among designers actually shown here — i.e.
+    // everyone with a rating, NOT gated by DOTM's stricter award threshold.
+    // A designer with no rating at all has nothing to score — stays null.
+    const scored = stats.filter((d) => d.averageRating !== null);
+    const maxRevenue = Math.max(0, ...scored.map((d) => revenueMap.get(d.name) ?? 0));
+    const maxTasks = Math.max(0, ...scored.map((d) => d.totalTasks));
 
-      // Both eligible: sort by weightedScore desc
-      if (a.eligible && b.eligible) {
-        if (a.weightedScore !== null && b.weightedScore !== null) {
-          const diff = b.weightedScore - a.weightedScore;
-          if (diff !== 0) return diff;
-        }
-        if (a.weightedScore !== null && b.weightedScore === null) return -1;
-        if (a.weightedScore === null && b.weightedScore !== null) return 1;
+    scored.forEach((d) => {
+      const rev = revenueMap.get(d.name) ?? 0;
+      d.weightedScore = computeWeightedDesignerScore(
+        d.averageRating ?? 0, rev, maxRevenue, d.totalTasks, maxTasks,
+      );
+    });
+
+    // ── 4. Sort: every scored designer by weightedScore desc, unscored last ─
+    return stats.sort((a, b) => {
+      if (a.weightedScore !== null && b.weightedScore !== null) {
+        const diff = b.weightedScore - a.weightedScore;
+        if (diff !== 0) return diff;
         return b.totalTasks - a.totalTasks;
       }
-
-      // Both ineligible: sort by avgRating desc; null-rating designers go last
-      if (a.averageRating !== null && b.averageRating === null) return -1;
-      if (a.averageRating === null && b.averageRating !== null) return 1;
-      if (a.averageRating !== null && b.averageRating !== null) {
-        return b.averageRating - a.averageRating;
-      }
+      // Any real score outranks no score at all
+      if (a.weightedScore !== null && b.weightedScore === null) return -1;
+      if (a.weightedScore === null && b.weightedScore !== null) return 1;
+      // Both unscored (no rating yet): more tasks first, as a stable fallback
       return b.totalTasks - a.totalTasks;
     });
-  }, [tasks]);
+  }, [tasks, revenueMap]);
 }

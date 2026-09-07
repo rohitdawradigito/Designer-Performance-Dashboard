@@ -5,6 +5,9 @@ export function applyClientFilters(tasks: Task[], filters: FilterState): Task[] 
     if (filters.leader && task.teamLeader !== filters.leader) return false;
     if (filters.designer && !task.designerName.toLowerCase().includes(filters.designer.toLowerCase())) return false;
     if (filters.deliverable && task.deliverable !== filters.deliverable) return false;
+    if (filters.category) {
+      if (task.category.toLowerCase() !== filters.category.toLowerCase()) return false;
+    }
     if (filters.month) {
       const taskMonth = task.date?.slice(0, 7);
       if (taskMonth !== filters.month) return false;
@@ -23,6 +26,10 @@ export function getUniqueLeaders(tasks: Task[]): string[] {
 
 export function getUniqueDeliverables(tasks: Task[]): string[] {
   return [...new Set(tasks.map((t) => t.deliverable).filter(Boolean))].sort();
+}
+
+export function getUniqueCategories(tasks: Task[]): string[] {
+  return [...new Set(tasks.map((t) => t.category).filter(Boolean))].sort();
 }
 
 export function getAvailableMonths(tasks: Task[]): string[] {

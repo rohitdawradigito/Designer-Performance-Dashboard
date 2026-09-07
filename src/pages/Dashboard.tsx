@@ -3,6 +3,7 @@ import { PageShell } from '../components/layout/PageShell';
 import { FilterBar } from '../components/dashboard/FilterBar';
 import { KPIGrid } from '../components/dashboard/KPIGrid';
 import { DesignerOfMonth } from '../components/dashboard/DesignerOfMonth';
+import { ITOperationsChampion } from '../components/dashboard/ITOperationsChampion';
 import { Leaderboard } from '../components/dashboard/Leaderboard';
 import { RecentTasksTable } from '../components/dashboard/RecentTasksTable';
 import { RatingsBarChart } from '../components/charts/RatingsBarChart';
@@ -48,9 +49,10 @@ export function Dashboard() {
           {/* KPI Grid */}
           <KPIGrid />
 
-          {/* Designer of Month banner */}
-          <div className="mb-6">
+          {/* Designer of Month + IT Operations Champion banners */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
             <DesignerOfMonth />
+            <ITOperationsChampion />
           </div>
 
           {/* Charts Row 1 */}

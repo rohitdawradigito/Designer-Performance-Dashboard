@@ -1,10 +1,12 @@
 import { useMemo } from 'react';
 import { useAppContext } from '../../context/AppContext';
 import { KPICard } from './KPICard';
+import { Card } from '../ui/Card';
+import { isClientLost } from '../../lib/ratings';
 import { Users, ClipboardList, Star, Trophy, TrendingDown } from 'lucide-react';
 
 export function KPIGrid() {
-  const { tasks, loading } = useAppContext();
+  const { tasks, allTasks, loading } = useAppContext();
 
   const stats = useMemo(() => {
     if (!tasks.length) return null;
@@ -54,61 +56,105 @@ export function KPIGrid() {
     return { totalTasks, uniqueDesigners, avgRating, best, worst };
   }, [tasks]);
 
-  const isLoading = loading || !stats;
+  // Client Lost is a standing per-designer flag, not tied to whichever month
+  // happens to be selected, so it's read from allTasks (unfiltered) — same
+  // fix as the Leaderboard badge. Scoping this to the filtered `tasks` meant
+  // the badge could silently vanish whenever the active month didn't happen
+  // to include that designer's Client Lost task.
+  const clientLostDesigners = useMemo(
+    () =>
+      new Set(
+        allTasks
+          .filter((t) => isClientLost(t.status))
+          .map((t) => t.designerName)
+          .filter(Boolean)
+      ),
+    [allTasks]
+  );
+
+  /** Renders a designer name with optional Client Lost badge */
+  function designerValue(name: string | undefined) {
+    if (!name) return 'N/A';
+    return (
+      <span className="flex items-center gap-2 flex-wrap">
+        {name}
+        {clientLostDesigners.has(name) && (
+          <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-red-500/20 text-red-400 border border-red-500/30">
+            Client Lost
+          </span>
+        )}
+      </span>
+    );
+  }
+
+  // "Still loading" and "loaded but zero matches" are different states.
+  // Conflating them (as isLoading = loading || !stats did) left the grid stuck
+  // showing loading skeletons forever whenever a filter combination matched no
+  // tasks — never resolving to a real empty state.
+  if (loading) {
+    return (
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-6 w-full">
+        {[...Array(5)].map((_, i) => (
+          <KPICard key={i} title="" value="" icon={<ClipboardList size={18} />} loading />
+        ))}
+      </div>
+    );
+  }
+
+  if (!stats) {
+    return (
+      <div className="mb-6">
+        <Card>
+          <p className="text-[#8B8B9E] text-sm py-6 text-center">
+            No data for the selected filters.
+          </p>
+        </Card>
+      </div>
+    );
+  }
 
   return (
     // FIX 1: 1 col mobile → 2 col small → 3 col large. No overflow, no cut cards.
     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-6 w-full">
       <KPICard
         title="Total Tasks"
-        value={isLoading ? '—' : stats.totalTasks.toLocaleString()}
+        value={stats.totalTasks.toLocaleString()}
         icon={<ClipboardList size={18} />}
         iconColor="text-indigo-400"
-        loading={isLoading}
       />
       <KPICard
         title="Total Designers"
-        value={isLoading ? '—' : stats.uniqueDesigners}
+        value={stats.uniqueDesigners}
         icon={<Users size={18} />}
         iconColor="text-emerald-400"
-        loading={isLoading}
       />
       <KPICard
         title="Avg Rating"
-        value={
-          isLoading
-            ? '—'
-            : stats.avgRating !== null
-            ? `${stats.avgRating.toFixed(2)} / 5`
-            : 'N/A'
-        }
+        value={stats.avgRating !== null ? `${stats.avgRating.toFixed(2)} / 5` : 'N/A'}
         icon={<Star size={18} />}
         iconColor="text-amber-400"
-        loading={isLoading}
       />
       <KPICard
-        title="Best Performer"
-        value={isLoading ? '—' : stats.best?.designerName ?? 'N/A'}
+        title="Quality Champion"
+        value={designerValue(stats.best?.designerName)}
         subtitle={
-          stats?.best != null
+          stats.best != null
             ? `Avg Rating: ${stats.best.avgRating.toFixed(2)}`
             : undefined
         }
         icon={<Trophy size={18} />}
         iconColor="text-yellow-400"
-        loading={isLoading}
       />
       <KPICard
         title="Needs Attention"
-        value={isLoading ? '—' : stats.worst?.designerName ?? 'N/A'}
+        value={designerValue(stats.worst?.designerName)}
         subtitle={
-          stats?.worst != null
+          stats.worst != null
             ? `Avg Rating: ${stats.worst.avgRating.toFixed(2)}`
             : undefined
         }
         icon={<TrendingDown size={18} />}
         iconColor="text-red-400"
-        loading={isLoading}
       />
     </div>
   );

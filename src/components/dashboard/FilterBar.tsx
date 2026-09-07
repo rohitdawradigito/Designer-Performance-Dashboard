@@ -3,9 +3,22 @@ import { useAppContext } from '../../context/AppContext';
 import { useFilters } from '../../hooks/useFilters';
 import { Select } from '../ui/Select';
 import { Button } from '../ui/Button';
-import { getUniqueDesigners, getUniqueLeaders, getUniqueDeliverables, getAvailableMonths } from '../../lib/filters';
+import {
+  getUniqueDesigners,
+  getUniqueLeaders,
+  getUniqueDeliverables,
+  getUniqueCategories,
+  getAvailableMonths,
+} from '../../lib/filters';
 import { DELIVERABLES } from '../../constants/deliverables';
 import { X } from 'lucide-react';
+
+const STATIC_CATEGORIES = [
+  'Web Design',
+  'Graphic Design',
+  'Design cum Development',
+  'IT Operations',
+];
 
 export function FilterBar() {
   const { allTasks } = useAppContext();
@@ -16,8 +29,14 @@ export function FilterBar() {
   const leaders = useMemo(() => getUniqueLeaders(allTasks), [allTasks]);
   const designers = useMemo(() => getUniqueDesigners(allTasks), [allTasks]);
   const deliverables = useMemo(() => getUniqueDeliverables(allTasks), [allTasks]);
+  const categories = useMemo(() => getUniqueCategories(allTasks), [allTasks]);
 
-  const hasActiveFilters = filters.month || filters.leader || filters.designer || filters.deliverable;
+  const hasActiveFilters =
+    filters.month ||
+    filters.leader ||
+    filters.designer ||
+    filters.deliverable ||
+    filters.category;
 
   function formatMonth(m: string) {
     if (!m) return m;
@@ -55,6 +74,13 @@ export function FilterBar() {
         placeholder="All Deliverables"
         options={(deliverables.length > 0 ? deliverables : DELIVERABLES).map((d) => ({ value: d, label: d }))}
         className="min-w-[150px]"
+      />
+      <Select
+        value={filters.category}
+        onChange={(v) => setFilters({ category: v })}
+        placeholder="All Categories"
+        options={(categories.length > 0 ? categories : STATIC_CATEGORIES).map((c) => ({ value: c, label: c }))}
+        className="min-w-[170px]"
       />
       {hasActiveFilters && (
         <Button variant="ghost" size="sm" onClick={resetFilters} leftIcon={<X size={14} />}>

@@ -37,11 +37,11 @@ function ratingDisplay(r: number | null) {
   return <span className="font-semibold text-[#F0F0F5]">{r.toFixed(1)}</span>;
 }
 
-const platformColors: Record<string, 'indigo' | 'success' | 'amber' | 'default'> = {
-  Kajabi: 'indigo',
-  Webflow: 'success',
-  GHL: 'amber',
-  WordPress: 'default',
+const categoryColors: Record<string, 'indigo' | 'success' | 'amber' | 'default'> = {
+  'Web Design': 'indigo',
+  'Graphic Design': 'success',
+  'Design cum Development': 'amber',
+  'IT Operations': 'default',
 };
 
 const PAGE_SIZE = 10;
@@ -228,7 +228,7 @@ export function RecentTasksTable() {
                 <Th>#</Th>
                 <Th>Date</Th>
                 <Th>Client</Th>
-                <Th>Platform</Th>
+                <Th>Category</Th>
                 <Th>Designer</Th>
                 <Th>Team Leader</Th>
                 <Th>Deliverable</Th>
@@ -245,8 +245,8 @@ export function RecentTasksTable() {
                   <Td>{formatDate(task.date)}</Td>
                   <Td><span className="font-medium">{task.clientName || '—'}</span></Td>
                   <Td>
-                    <Badge variant={platformColors[task.platform] ?? 'default'}>
-                      {task.platform || '—'}
+                    <Badge variant={categoryColors[task.category] ?? 'default'}>
+                      {task.category || '—'}
                     </Badge>
                   </Td>
                   <Td>

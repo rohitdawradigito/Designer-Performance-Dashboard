@@ -15,6 +15,19 @@ export function computeAverage(
   return Math.round((sum / values.length) * 100) / 100;
 }
 
+/**
+ * True if a task's status marks it Client Lost.
+ *
+ * Case-insensitive and whitespace-trimmed: the Rating Sheet's Client Status
+ * column has been observed with inconsistent casing — e.g. "client lost "
+ * (lowercase, trailing space) rather than the canonical "Client Lost" — which
+ * a plain `=== 'Client Lost'` comparison silently fails on, hiding the flag
+ * everywhere it's checked (Leaderboard badge, DOTM/IT Ops eligibility).
+ */
+export function isClientLost(status: string | null | undefined): boolean {
+  return String(status ?? '').trim().toLowerCase() === 'client lost';
+}
+
 export function statusFromRating(avg: number | null): DesignerStats['status'] {
   if (avg === null) return 'No Rating';
   if (avg >= 4.5) return 'Excellent';
@@ -49,24 +62,6 @@ export function ratingBarColor(avg: number | null): string {
   if (avg >= 3.5) return '#6366F1';
   if (avg >= 2.5) return '#F59E0B';
   return '#EF4444';
-}
-
-/**
- * Weighted score formula (FIX 3).
- * Boosts designers who handle a larger share of all tasks:
- *   score = avgRating × (1 + designerTasks / totalTasks)
- *
- * @param avgRating      - designer's average rating (0–5)
- * @param designerTasks  - number of tasks this designer has
- * @param totalTasks     - total tasks across ALL designers in the current view
- */
-export function computeWeightedScore(
-  avgRating: number,
-  designerTasks: number,
-  totalTasks: number,
-): number {
-  if (totalTasks === 0) return 0;
-  return avgRating * (1 + designerTasks / totalTasks);
 }
 
 /** Minimum tasks a designer must have to be eligible for awards */

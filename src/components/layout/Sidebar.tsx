@@ -10,11 +10,11 @@ export function Sidebar() {
       {/* Logo */}
       <div className="flex items-center gap-3 px-4 py-5 border-b border-[#1E1E2E]">
         <div className="w-8 h-8 rounded-lg bg-[#6366F1] flex items-center justify-center flex-shrink-0">
-          <span className="text-white font-bold text-sm">DET</span>
+          <span className="text-white font-bold text-sm">POS</span>
         </div>
         <div className="hidden lg:block">
-          <p className="text-[#F0F0F5] font-semibold text-sm leading-tight">Design Excellence</p>
-          <p className="text-[#8B8B9E] text-xs">Tracker</p>
+          <p className="text-[#F0F0F5] font-semibold text-sm leading-tight">Project Operations</p>
+          <p className="text-[#8B8B9E] text-xs">System</p>
         </div>
       </div>
 

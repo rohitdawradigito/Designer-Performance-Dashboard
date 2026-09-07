@@ -1,5 +1,6 @@
 import { useAppContext } from '../../context/AppContext';
 import { useLeaderboard } from '../../hooks/useLeaderboard';
+import { isClientLost } from '../../lib/ratings';
 import { Card } from '../ui/Card';
 import { RatingBadge } from '../ui/RatingBadge';
 import { Table, Thead, Tbody, Th, Td } from '../ui/Table';
@@ -44,8 +45,16 @@ const DESIGNER_COLORS = [
 ];
 
 export function PerformanceTable() {
-  const { loading } = useAppContext();
+  const { loading, tasks } = useAppContext();
   const leaderboard = useLeaderboard();
+
+  // Build Client Lost set from filtered tasks only
+  const clientLostDesigners = new Set(
+    tasks
+      .filter((t) => isClientLost(t.status))
+      .map((t) => t.designerName)
+      .filter(Boolean)
+  );
 
   // Only show designers with at least 1 task (already the case)
   const designers = leaderboard;
@@ -114,6 +123,11 @@ export function PerformanceTable() {
                           {d.name}
                         </p>
                       </div>
+                      {clientLostDesigners.has(d.name) && (
+                        <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-red-500/20 text-red-400 border border-red-500/30">
+                          Client Lost
+                        </span>
+                      )}
                     </div>
                   </Td>
                   <Td>
