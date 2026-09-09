@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom';
-import { LayoutDashboard, Grid2X2, RefreshCw } from 'lucide-react';
+import { LayoutDashboard, Grid2X2, DollarSign, RefreshCw } from 'lucide-react';
 import { useAppContext } from '../../context/AppContext';
 
 export function Sidebar() {
@@ -46,6 +46,20 @@ export function Sidebar() {
         >
           <Grid2X2 size={18} className="flex-shrink-0" />
           <span className="hidden lg:block text-sm font-medium">Portfolio</span>
+        </NavLink>
+
+        <NavLink
+          to="/revenue"
+          className={({ isActive }) =>
+            `flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-150 group
+            ${isActive
+              ? 'bg-[#6366F1]/15 text-[#6366F1] border border-[#6366F1]/20'
+              : 'text-[#8B8B9E] hover:text-[#F0F0F5] hover:bg-[#1E1E2E]'
+            }`
+          }
+        >
+          <DollarSign size={18} className="flex-shrink-0" />
+          <span className="hidden lg:block text-sm font-medium">Revenue</span>
         </NavLink>
       </nav>
 

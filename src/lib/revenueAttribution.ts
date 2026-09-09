@@ -104,8 +104,55 @@ export function resolveRevenueAmount(item: RevenueItem): number {
 }
 
 /**
+ * Extracts a clean "YYYY-MM" prefix from a raw month value, tolerating a full
+ * ISO datetime string (e.g. "2026-07-31T18:30:00.000Z") in place of the
+ * expected "YYYY-MM" — seen in real data, most likely a date-formatted sheet
+ * cell serialized as a timestamp instead of plain text. Left unnormalized,
+ * two different raw representations of the same real month (e.g. "2026-07"
+ * and "2026-07-31T18:30:00.000Z") would be treated as distinct values and
+ * both happen to format to the same "Jul 2026" label — producing a duplicate
+ * dropdown entry without ever comparing equal to the clean value elsewhere.
+ * Falls back to the trimmed raw value for anything that doesn't look like a
+ * date at all, so unrecognized values don't just silently vanish.
+ */
+function normalizeMonthValue(raw: string): string {
+  const trimmed = raw.trim();
+  const match = trimmed.match(/^(\d{4}-\d{2})/);
+  return match ? match[1] : trimmed;
+}
+
+/**
+ * Parses a RevenueItem.month value into its start/end "YYYY-MM" bounds.
+ *
+ * A project that spans multiple months is reported as a range —
+ * "2026-07 - 2026-09" — instead of being arbitrarily pinned to one month.
+ * A plain single value ("2026-07") has the same start and end.
+ */
+export function parseMonthRange(month: string): { start: string; end: string } {
+  if (!month) return { start: '', end: '' };
+  const parts = month.split(' - ').map((s) => s.trim());
+  if (parts.length === 2 && parts[0] && parts[1]) {
+    return { start: normalizeMonthValue(parts[0]), end: normalizeMonthValue(parts[1]) };
+  }
+  const single = normalizeMonthValue(month);
+  return { start: single, end: single };
+}
+
+/** True if a RevenueItem's month value (single or range) covers the given "YYYY-MM". */
+export function monthIncludes(itemMonth: string, targetMonth: string): boolean {
+  const { start, end } = parseMonthRange(itemMonth);
+  if (!start) return false;
+  return targetMonth >= start && targetMonth <= end;
+}
+
+/**
  * Narrows a revenue list to an active month/category filter.
  * An empty string means "no filter" (i.e. All Months / All Categories).
+ *
+ * Month matching is range-aware (see monthIncludes) — a row whose month is
+ * "2026-06 - 2026-08" must still match a "2026-07" filter, not just an exact
+ * string match, or every ranged row would be silently excluded the moment a
+ * specific month is selected.
  *
  * Note this scopes REVENUE rows only, never the task list. Task hours must stay
  * whole so each project's hours denominator is complete — filtering tasks by
@@ -118,7 +165,7 @@ export function scopeRevenueItems(
   const { month, category } = opts;
   if (!month && !category) return items;
   return items.filter((r) => {
-    if (month && r.month !== month) return false;
+    if (month && !monthIncludes(r.month, month)) return false;
     if (category && r.category.toLowerCase() !== category.toLowerCase()) return false;
     return true;
   });

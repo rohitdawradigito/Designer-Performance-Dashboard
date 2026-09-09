@@ -1,5 +1,6 @@
 import { API_URL } from '../config/env';
 import type { Task, PortfolioItem, FilterState, ApiResponse, RevenueItem } from '../types';
+import { normalizeName } from './names';
 
 function buildParams(filters: Partial<FilterState>): URLSearchParams {
   const params = new URLSearchParams({ action: 'getData' });
@@ -27,8 +28,12 @@ export async function fetchTasks(
     deliverable:      String(raw['deliverable'] ?? ''),
     projectId:        String(raw['projectId'] ?? ''),
     proposedEfforts:  String(raw['proposedEfforts'] ?? ''),
-    teamLeader:       String(raw['teamLeader'] ?? ''),
-    designerName:     String(raw['designerName'] ?? ''),
+    // Normalized here, once, at ingestion — every downstream grouping
+    // (Leaderboard, DOTM/IT Ops Champion, revenue attribution, filter
+    // dropdowns) keys off these fields directly, so a name that's clean
+    // here is clean everywhere without scattering .trim() calls around.
+    teamLeader:       normalizeName(raw['teamLeader'] as string | null | undefined),
+    designerName:     normalizeName(raw['designerName'] as string | null | undefined),
     category:         String(raw['category'] ?? ''),
     workLink:         String(raw['workLink'] ?? ''),
     description:      String(raw['description'] ?? ''),
@@ -72,7 +77,12 @@ export async function fetchRevenue(
     srNo:           Number(raw['srNo']) || 0,
     clientName:     String(raw['clientName'] ?? ''),
     projectId:      String(raw['projectId'] ?? ''),
-    leader:         String(raw['leader'] ?? ''),
+    // Same normalization as Task.teamLeader — RevenueItem.leader is matched
+    // against Task.teamLeader throughout the Revenue page (filters, team
+    // breakdown), so both must be keyed the same way or a leader whose name
+    // has inconsistent whitespace in one sheet but not the other would fail
+    // to match between the two.
+    leader:         normalizeName(raw['leader'] as string | null | undefined),
     category:       String(raw['category'] ?? ''),
     totalHours:     Number(raw['totalHours']) || 0,
     paymentMode:    String(raw['paymentMode'] ?? ''),

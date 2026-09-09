@@ -1,5 +1,4 @@
 import { useState, useEffect, useMemo } from 'react';
-import { fetchRevenue } from '../lib/api';
 import type { RevenueItem } from '../types';
 import { useAppContext } from '../context/AppContext';
 import {
@@ -7,6 +6,8 @@ import {
   computeCategoryRevenue,
   resolveRevenueAmount,
   scopeRevenueItems,
+  parseMonthRange,
+  monthIncludes,
 } from '../lib/revenueAttribution';
 import { PageShell } from '../components/layout/PageShell';
 import { Card } from '../components/ui/Card';
@@ -51,11 +52,19 @@ function formatMonth(m: string): string {
   return date.toLocaleDateString('en-US', { year: 'numeric', month: 'short' });
 }
 
-/** Returns the most recent YYYY-MM found in a list of RevenueItems, or '' if empty. */
+/**
+ * Returns the most recent YYYY-MM found in a list of RevenueItems, or '' if
+ * empty. A row's month may be a range ("2026-07 - 2026-09") rather than a
+ * single value — the END of the range is what determines recency, so this
+ * uses parseMonthRange rather than comparing raw strings (a raw-string
+ * comparison would judge a "2026-06 - 2026-09" row as older than a plain
+ * "2026-08" row, even though the range actually extends past it).
+ */
 function getMostRecentRevenueMonth(items: RevenueItem[]): string {
   let best = '';
   for (const r of items) {
-    if (r.month && r.month > best) best = r.month;
+    const { end } = parseMonthRange(r.month);
+    if (end && end > best) best = end;
   }
   return best;
 }
@@ -267,16 +276,18 @@ function RevenueFilterBar({
 // ── Main Revenue page ─────────────────────────────────────────────────────────
 
 export function Revenue() {
-  // The single fetched revenue dataset — always unfiltered. Every filtered view
-  // below (month/leader/category/designer) is derived from this client-side,
-  // mirroring how AppContext handles tasks. This is also the Fix 1 mechanism:
-  // the default month and the displayed rows are now computed from the exact
-  // same list, so a month that's provably present here can never render as
-  // empty (which is what happened when a second server-side fetch, filtered
-  // by that same month string, came back with a mismatched result).
-  const [allRevenueData, setAllRevenueData] = useState<RevenueItem[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  // Tasks AND revenue both come from the single shared AppContext fetch —
+  // the same (allTasks, revenueItems) pair every other consumer (Dashboard's
+  // Leaderboard/DOTM/IT Ops Champion) uses. This page used to run its own
+  // independent fetchRevenue({}) call here, which meant allTasks (AppContext's
+  // snapshot) and allRevenueData (this page's own, separately-fetched
+  // snapshot) could correspond to two different moments against a backend
+  // that's been observed returning inconsistent data across separate
+  // requests — breaking the projectId join that computeCategoryRevenue /
+  // computeDesignerRevenue rely on (a project's tasks and its revenue row
+  // must come from the SAME fetch, or they silently fail to match up).
+  const { allTasks, revenueItems: allRevenueData, loading, error, refetch } = useAppContext();
+
   const [filters, setFilters] = useState<RevenueFilters>({
     month: '',    // Bug 3b: start blank; corrected after allRevenueData loads
     leader: '',
@@ -286,22 +297,8 @@ export function Revenue() {
   // Tracks whether we've set the initial default month yet
   const [defaultMonthSet, setDefaultMonthSet] = useState(false);
 
-  // All tasks (unfiltered) from AppContext — used for attribution math
-  const { allTasks } = useAppContext();
-
   const updateFilters = (partial: Partial<RevenueFilters>) =>
     setFilters((prev) => ({ ...prev, ...partial }));
-
-  const loadRevenue = () => {
-    setLoading(true);
-    setError(null);
-    fetchRevenue({})
-      .then((rows) => { setAllRevenueData(rows); setLoading(false); })
-      .catch((err) => { setError(err.message); setLoading(false); });
-  };
-
-  // ── Fetch the complete revenue dataset once ──
-  useEffect(() => { loadRevenue(); }, []);
 
   // Fix 1: default month = max `month` field across RevenueItem[], NOT Task dates.
   // Revenue Master only has rows for projects with a filled-in Billing entry, so
@@ -317,22 +314,43 @@ export function Revenue() {
   }, [allRevenueData, defaultMonthSet]);
 
   // ── Available months for dropdown (from full dataset, most-recent-first) ──
+  // A row's month can be a single value ("2026-07") or a range
+  // ("2026-07 - 2026-09") for a project spanning multiple months. Building
+  // this list from the raw string (and deduplicating by that raw string)
+  // produced duplicate-looking labels — a plain "2026-07" and a range like
+  // "2026-07 - 2026-09" are different raw strings that could both display as
+  // "Jul 2026". Instead, collect the start and end of every row into a Set of
+  // real "YYYY-MM" values, so each month appears exactly once regardless of
+  // how many raw strings reference it.
   const availableMonths = useMemo(() => {
-    const months = [...new Set(allRevenueData.map((r) => r.month).filter(Boolean))];
-    return months.sort().reverse();
+    const months = new Set<string>();
+    allRevenueData.forEach((r) => {
+      const { start, end } = parseMonthRange(r.month);
+      if (start) months.add(start);
+      if (end) months.add(end);
+    });
+    return [...months].sort().reverse();
   }, [allRevenueData]);
 
-  // Bug 3a / Fix 1: month/leader/category filtering happens client-side against
-  // the SAME list the default month and dropdown were computed from — no second
+  // Bug 3a / Fix 1: month/leader filtering happens client-side against the
+  // SAME list the default month and dropdown were computed from — no second
   // round trip whose own filter matching could disagree with the client's.
+  //
+  // Month matching is range-aware (monthIncludes) — a row whose month is
+  // "2026-06 - 2026-08" must still match a "2026-07" filter selection, not
+  // just an exact string match, consistent with the backend's own
+  // range-inclusive filtering in getRevenueData.
+  //
+  // Category is deliberately NOT filtered here on RevenueItem.category — see
+  // categoryProjectIds below for why, and where category filtering actually
+  // happens instead.
   const filteredData = useMemo(() => {
     return allRevenueData.filter((r) => {
-      if (filters.month && r.month !== filters.month) return false;
+      if (filters.month && !monthIncludes(r.month, filters.month)) return false;
       if (filters.leader && r.leader !== filters.leader) return false;
-      if (filters.category && r.category !== filters.category) return false;
       return true;
     });
-  }, [allRevenueData, filters.month, filters.leader, filters.category]);
+  }, [allRevenueData, filters.month, filters.leader]);
 
   // Bug 1: option lists must always show the FULL set of values, never just
   // what's left after the current selection narrows the data — otherwise
@@ -344,9 +362,15 @@ export function Revenue() {
     () => [...new Set(allRevenueData.map((r) => r.leader).filter(Boolean))].sort(),
     [allRevenueData]
   );
+  // Category options come from allTasks, NOT RevenueItem.category — the same
+  // fix as the "Revenue by Category" chart: the backend stamps each project
+  // with only the first category it saw, so a project spanning multiple
+  // categories would silently hide every category but that first one from
+  // this dropdown. allTasks has every category actually present, matching
+  // what the Dashboard's Category filter already correctly shows.
   const categories = useMemo(
-    () => [...new Set(allRevenueData.map((r) => r.category).filter(Boolean))].sort(),
-    [allRevenueData]
+    () => [...new Set(allTasks.map((t) => t.category).filter(Boolean))].sort(),
+    [allTasks]
   );
   // Designers come from allTasks (revenue rows don't have per-designer granularity)
   const designers = useMemo(
@@ -354,30 +378,56 @@ export function Revenue() {
     [allTasks]
   );
 
-  // ── Apply client-side designer filter (revenue rows are per-project, not per-designer) ──
-  const visibleData = useMemo(() => {
-    if (!filters.designer) return filteredData;
-    const designerProjects = new Set(
+  // Same reasoning as the category dropdown: a project can span multiple
+  // categories, so "does this project belong to the selected category" must
+  // be answered from Task-level data (any task on the project with that
+  // category), not RevenueItem.category — otherwise selecting "IT Operations"
+  // would incorrectly exclude a project's ENTIRE revenue row just because the
+  // backend happened to stamp it with a different category, even though real
+  // IT Operations hours were logged on it. This mirrors designerProjects
+  // below: a project-inclusion filter, not a per-category dollar split — the
+  // same model Leader/Designer filtering already uses on this page.
+  const categoryProjectIds = useMemo(() => {
+    if (!filters.category) return null;
+    return new Set(
       allTasks
-        .filter((t) => t.designerName === filters.designer)
+        .filter((t) => t.category === filters.category)
         .map((t) => t.projectId.trim())
     );
-    return filteredData.filter((r) => designerProjects.has(r.projectId.trim()));
-  }, [filteredData, filters.designer, allTasks]);
+  }, [allTasks, filters.category]);
+
+  // ── Apply client-side designer + category filters (both are project-level
+  // inclusion filters over revenue rows, since revenue is per-project) ──
+  const visibleData = useMemo(() => {
+    let data = filteredData;
+    if (filters.designer) {
+      const designerProjects = new Set(
+        allTasks
+          .filter((t) => t.designerName === filters.designer)
+          .map((t) => t.projectId.trim())
+      );
+      data = data.filter((r) => designerProjects.has(r.projectId.trim()));
+    }
+    if (categoryProjectIds) {
+      data = data.filter((r) => categoryProjectIds.has(r.projectId.trim()));
+    }
+    return data;
+  }, [filteredData, filters.designer, allTasks, categoryProjectIds]);
 
   // ── Pre-compute designer revenues ──
-  // Revenue rows are scoped to the active month/category so the attribution KPIs
-  // reconcile with the Total Revenue KPI below. Tasks are deliberately NOT scoped:
-  // each project's hours denominator must stay whole, or shares get inflated.
-  // Leader/designer filters are excluded here too — they select which rows to
-  // DISPLAY, not which hours count toward a project total.
-  const scopedRevenueData = useMemo(
-    () => scopeRevenueItems(allRevenueData, {
-      month: filters.month,
-      category: filters.category,
-    }),
-    [allRevenueData, filters.month, filters.category]
-  );
+  // Revenue rows are scoped to the active month (and now category, via
+  // categoryProjectIds — not RevenueItem.category) so the attribution KPIs
+  // reconcile with the Total Revenue KPI below. Tasks are deliberately NOT
+  // scoped: each project's hours denominator must stay whole, or shares get
+  // inflated. Leader/designer filters are excluded here too — they select
+  // which rows to DISPLAY, not which hours count toward a project total.
+  const scopedRevenueData = useMemo(() => {
+    let data = scopeRevenueItems(allRevenueData, { month: filters.month });
+    if (categoryProjectIds) {
+      data = data.filter((r) => categoryProjectIds.has(r.projectId.trim()));
+    }
+    return data;
+  }, [allRevenueData, filters.month, categoryProjectIds]);
 
   const designerRevenues = useMemo(
     () => computeDesignerRevenue(allTasks, scopedRevenueData),
@@ -508,7 +558,7 @@ export function Revenue() {
             <p className="text-[#F0F0F5] font-semibold mb-1">Failed to load revenue data</p>
             <p className="text-[#8B8B9E] text-sm mb-4">{error}</p>
             <button
-              onClick={loadRevenue}
+              onClick={refetch}
               className="px-4 py-2 bg-[#6366F1] hover:bg-[#5254CC] text-white text-sm font-medium rounded-lg transition-colors"
             >
               Retry
